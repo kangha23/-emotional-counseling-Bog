@@ -12,6 +12,15 @@ Nguyên tắc trả lời:
 - Nếu câu hỏi liên quan đến bạo lực, quấy rối hoặc tình huống nguy hiểm, nhẹ nhàng khuyên người dùng tìm đến sự giúp đỡ từ người thân đáng tin cậy hoặc cơ quan chức năng.
 - Trả lời ngắn gọn, dễ đọc, có thể xuống dòng hoặc gạch đầu dòng khi cần. Hạn chế dưới 250 từ.`;
 
+function extractText(chunk) {
+  return (
+    chunk?.candidates?.[0]?.content?.parts
+      ?.map((p) => p.text)
+      .filter(Boolean)
+      .join("") || ""
+  );
+}
+
 module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -23,15 +32,16 @@ module.exports = async function handler(req, res) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return res.status(500).json({ error: "Thiếu biến môi trường GEMINI_API_KEY" });
 
+  const { message, history = [] } = req.body || {};
+  if (!message || typeof message !== "string") {
+    return res.status(400).json({ error: "Thiếu nội dung tin nhắn" });
+  }
+
+  const contents = [...history, { role: "user", parts: [{ text: message.slice(0, 4000) }] }];
+
+  let upstream;
   try {
-    const { message, history = [] } = req.body || {};
-    if (!message || typeof message !== "string") {
-      return res.status(400).json({ error: "Thiếu nội dung tin nhắn" });
-    }
-
-    const contents = [...history, { role: "user", parts: [{ text: message.slice(0, 4000) }] }];
-
-    const upstream = await fetch(`${API_URL}${MODEL}:generateContent`, {
+    upstream = await fetch(`${API_URL}${MODEL}:streamGenerateContent?alt=sse`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
       body: JSON.stringify({
@@ -40,19 +50,66 @@ module.exports = async function handler(req, res) {
         generationConfig: { temperature: 0.8, maxOutputTokens: 1024 }
       })
     });
+  } catch (e) {
+    return res.status(502).json({ error: "Không kết nối được Gemini API: " + e.message });
+  }
 
-    const data = await upstream.json();
-    if (!upstream.ok) {
-      return res.status(upstream.status).json({ error: data?.error?.message || "Lỗi từ Gemini API" });
+  if (!upstream.ok || !upstream.body) {
+    const data = await upstream.json().catch(() => null);
+    return res.status(upstream.status || 502).json({
+      error: data?.error?.message || "Lỗi từ Gemini API"
+    });
+  }
+
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no"
+  });
+  if (typeof res.flushHeaders === "function") res.flushHeaders();
+
+  const send = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
+
+  try {
+    const reader = upstream.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let sentAny = false;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) continue;
+        const payload = trimmed.slice(5).trim();
+        if (!payload || payload === "[DONE]") continue;
+
+        try {
+          const chunk = JSON.parse(payload);
+          const text = extractText(chunk);
+          if (text) {
+            sentAny = true;
+            send({ text });
+          }
+        } catch {
+          // bỏ qua dòng JSON lỗi
+        }
+      }
     }
 
-    const reply =
-      data.candidates?.[0]?.content?.parts?.map((p) => p.text).join("") ||
-      "Xin lỗi, mình chưa trả lời được lúc này.";
-
-    res.status(200).json({ reply: reply.trim() });
+    if (!sentAny) send({ text: "Xin lỗi, mình chưa trả lời được lúc này 🌷" });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    send({ error: e.message });
+  } finally {
+    res.write("data: [DONE]\n\n");
+    res.end();
   }
 };
 

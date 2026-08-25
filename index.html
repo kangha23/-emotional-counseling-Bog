@@ -14,13 +14,26 @@
 
   <div class="chat-container">
     <header class="chat-header">
+      <button type="button" class="icon-btn" id="sidebarToggle" title="Lịch sử hội thoại">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+      </button>
       <div class="bot-avatar">💗</div>
       <div class="bot-info">
         <h1>JinXuan</h1>
         <p><span class="status-dot"></span>Trực tuyến · Luôn sẵn sàng lắng nghe</p>
       </div>
       <div class="header-badge">AI Tư Vấn Tình Cảm</div>
+      <button type="button" class="icon-btn" id="themeToggle" title="Chế độ tối">🌙</button>
     </header>
+
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-head">
+        <h2>Hội thoại</h2>
+        <button type="button" class="new-chat-btn" id="newChatBtn">＋ Mới</button>
+      </div>
+      <ul class="conv-list" id="convList"></ul>
+    </aside>
+    <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
 
     <main class="chat-box" id="chatBox"></main>
 
