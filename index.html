@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JinXuan - Trợ Lý Tư Vấn Tình Cảm</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="bg-decor" id="bgDecor"></div>
+
+  <div class="chat-container">
+    <header class="chat-header">
+      <div class="bot-avatar">💗</div>
+      <div class="bot-info">
+        <h1>JinXuan</h1>
+        <p><span class="status-dot"></span>Trực tuyến · Luôn sẵn sàng lắng nghe</p>
+      </div>
+      <div class="header-badge">AI Tư Vấn Tình Cảm</div>
+    </header>
+
+    <main class="chat-box" id="chatBox"></main>
+
+    <div class="suggestions" id="suggestions">
+      <button class="chip">Crush không rep tin nhắn, nên làm gì? 💬</button>
+      <button class="chip">Làm sao để tỏ tình tự nhiên? 🌹</button>
+      <button class="chip">Mình và người yêu hay cãi nhau... 😔</button>
+      <button class="chip">Làm quen người mới ở đâu? ✨</button>
+    </div>
+
+    <form class="input-area" id="chatForm">
+      <input type="text" id="messageInput" placeholder="Tâm sự với JinXuan nhé..." autocomplete="off" />
+      <button type="submit" class="send-btn" title="Gửi">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+      </button>
+    </form>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
