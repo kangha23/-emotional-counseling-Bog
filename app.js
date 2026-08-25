@@ -1,9 +1,93 @@
 const STORAGE_KEY = "jinxuan_conversations_v1";
 const ACTIVE_KEY = "jinxuan_active_conversation";
 const THEME_KEY = "jinxuan_theme";
+const PERSONA_KEY = "jinxuan_persona";
+const MOODS_KEY = "jinxuan_moods_v1";
+const CHECKIN_KEY = "jinxuan_last_checkin";
+const TTS_KEY = "jinxuan_tts_enabled";
 
 const WELCOME_TEXT =
   "Chào bạn 🌷 Mình là **JinXuan**, trợ lý tư vấn tình cảm của bạn.\n\nDù là crush, yêu đương hay chia tay... cứ tâm sự với mình nha, mình luôn sẵn lòng lắng nghe 💕";
+
+/* ---------- Nhân vật (đồng bộ với api/chat.js) ---------- */
+
+const PERSONAS = {
+  ban_than: { short: "Bạn thân", desc: "Thẳng thắn, vui vẻ", avatar: "😎", tagline: "Thẳng thắn · Vui vẻ" },
+  chuyen_gia: { short: "Chuyên gia", desc: "Dịu dàng, sâu sắc", avatar: "🩺", tagline: "Dịu dàng · Sâu sắc" },
+  chi_da: { short: "Chị đại", desc: "Sắc sảo, thực tế", avatar: "💅", tagline: "Sắc sảo · Thực tế" }
+};
+const DEFAULT_PERSONA = "chuyen_gia";
+
+function getPersonaKey() {
+  const saved = localStorage.getItem(PERSONA_KEY);
+  return saved && PERSONAS[saved] ? saved : DEFAULT_PERSONA;
+}
+
+function personaAvatar() {
+  return PERSONAS[getPersonaKey()].avatar;
+}
+
+/* ---------- Cảm xúc & tâm trạng ---------- */
+
+const EMOTIONS = {
+  happy:   { emoji: "😊", score: 5,   label: "Vui vẻ",      color: "#fbbf24",
+             words: ["vui", "vui vẻ", "hạnh phúc", "happy", "tuyệt", "cười", "mừng", "phấn khích", "yêu đời", "hào hứng", "sướng"] },
+  love:    { emoji: "🥰", score: 4,   label: "Yêu thương",  color: "#ec4899",
+             words: ["yêu", "thương", "crush", "tỏ tình", "hẹn hò", "tim đập", "bị đổ", "say đắm", "rung động"] },
+  neutral: { emoji: "🙂", score: 3,   label: "Bình thường", color: "#94a3b8",
+             words: [] },
+  tired:   { emoji: "😞", score: 2.5, label: "Hơi mệt",     color: "#818cf8",
+             words: ["mệt", "kiệt sức", "uể oải", "burnout", "hết sức", "chai sạn", "chán nản"] },
+  anxious: { emoji: "😰", score: 2,   label: "Lo lắng",     color: "#38bdf8",
+             words: ["lo", "lo lắng", "sợ", "hoảng", "áp lực", "stress", "bồn chồn", "trăn trở", "bất an", "hay nghĩ"] },
+  sad:     { emoji: "😢", score: 1.5, label: "Buồn",        color: "#60a5fa",
+             words: ["buồn", "khóc", "cô đơn", "tủi thân", "chia tay", "thất vọng", "đau lòng", "sầu", "tiếc", "trống trải", "nặng lòng"] },
+  angry:   { emoji: "😠", score: 1,   label: "Tức giận",    color: "#ef4444",
+             words: ["tức", "giận", "bực", "khó chịu", "ức chế", "điên", "ghét", "cãi nhau", "tát", "xúc phạm"] }
+};
+
+function detectEmotion(text) {
+  const lower = text.toLowerCase();
+  let best = null;
+  let bestCount = 0;
+  for (const [key, emo] of Object.entries(EMOTIONS)) {
+    if (!emo.words.length) continue;
+    let count = 0;
+    for (const w of emo.words) {
+      if (lower.includes(w)) count++;
+    }
+    if (count > bestCount) {
+      bestCount = count;
+      best = key;
+    }
+  }
+  return best;
+}
+
+function todayStr(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+let moodLog = (() => {
+  try {
+    const raw = JSON.parse(localStorage.getItem(MOODS_KEY));
+    return Array.isArray(raw) ? raw : [];
+  } catch {
+    return [];
+  }
+})();
+
+function persistMoods() {
+  try {
+    localStorage.setItem(MOODS_KEY, JSON.stringify(moodLog.slice(-500)));
+  } catch {}
+}
+
+function addMoodEntry(entry) {
+  moodLog.push(entry);
+  persistMoods();
+  renderMoodChart(currentRange);
+}
 
 const chatBox = document.getElementById("chatBox");
 const chatForm = document.getElementById("chatForm");
@@ -13,10 +97,23 @@ const convListEl = document.getElementById("convList");
 const sidebarEl = document.getElementById("sidebar");
 const backdropEl = document.getElementById("sidebarBackdrop");
 const themeToggleBtn = document.getElementById("themeToggle");
+const personaBtn = document.getElementById("personaBtn");
+const personaBtnLabel = document.getElementById("personaBtnLabel");
+const personaMenu = document.getElementById("personaMenu");
+const personaPickerEl = document.getElementById("personaPicker");
+const headerAvatarEl = document.getElementById("headerAvatar");
+const botTaglineEl = document.getElementById("botTagline");
+const micBtn = document.getElementById("micBtn");
+const ttsBtn = document.getElementById("ttsBtn");
+const moodChartEl = document.getElementById("moodChart");
+const weeklySummaryBtn = document.getElementById("weeklySummaryBtn");
 
 let conversations = [];
 let activeId = null;
 let abortController = null;
+let currentRange = "week";
+
+const SUGGESTIONS_DEFAULT_HTML = suggestionsEl.innerHTML;
 
 /* ---------- Theme ---------- */
 
@@ -35,6 +132,56 @@ applyTheme(
 themeToggleBtn.addEventListener("click", () => {
   applyTheme(document.body.dataset.theme === "dark" ? "light" : "dark");
 });
+
+/* ---------- Chọn nhân vật ---------- */
+
+function applyPersonaVisual() {
+  const p = PERSONAS[getPersonaKey()];
+  headerAvatarEl.textContent = p.avatar;
+  botTaglineEl.textContent = `Trực tuyến · ${p.tagline}`;
+  personaBtnLabel.textContent = `${p.avatar} ${p.short}`;
+}
+
+function renderPersonaMenu() {
+  personaMenu.innerHTML = "";
+  for (const [key, p] of Object.entries(PERSONAS)) {
+    const opt = document.createElement("button");
+    opt.type = "button";
+    opt.className = "persona-option" + (key === getPersonaKey() ? " active" : "");
+    opt.innerHTML =
+      `<span class="po-emoji">${p.avatar}</span>` +
+      `<span class="po-text"><strong>${p.short}</strong><small>${p.desc}</small></span>` +
+      `<span class="po-check">✓</span>`;
+    opt.addEventListener("click", () => {
+      localStorage.setItem(PERSONA_KEY, key);
+      applyPersonaVisual();
+      renderPersonaMenu();
+      closePersonaMenu();
+    });
+    personaMenu.appendChild(opt);
+  }
+}
+
+function closePersonaMenu() {
+  personaMenu.classList.remove("open");
+  personaPickerEl.classList.remove("menu-open");
+}
+
+personaBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  if (personaMenu.classList.contains("open")) {
+    closePersonaMenu();
+  } else {
+    renderPersonaMenu();
+    personaMenu.classList.add("open");
+    personaPickerEl.classList.add("menu-open");
+  }
+});
+
+document.addEventListener("click", (e) => {
+  if (!personaPickerEl.contains(e.target)) closePersonaMenu();
+});
+applyPersonaVisual();
 
 /* ---------- Lưu trữ hội thoại ---------- */
 
@@ -91,6 +238,7 @@ function switchConversation(id) {
     return;
   }
   abortCurrentStream();
+  stopSpeaking();
   activeId = id;
   persist();
   renderConvList();
@@ -139,6 +287,7 @@ function renameConversation(id) {
 function openSidebar() {
   sidebarEl.classList.add("open");
   backdropEl.classList.add("show");
+  renderMoodChart(currentRange);
 }
 
 function closeSidebar() {
@@ -156,7 +305,10 @@ document.getElementById("newChatBtn").addEventListener("click", () => {
   closeSidebar();
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") closeSidebar();
+  if (e.key === "Escape") {
+    closeSidebar();
+    closePersonaMenu();
+  }
 });
 
 function renderConvList() {
@@ -262,7 +414,7 @@ function createMessageEl(role, ts) {
   if (role === "bot") {
     const avatar = document.createElement("div");
     avatar.className = "msg-avatar";
-    avatar.textContent = "💗";
+    avatar.textContent = personaAvatar();
     wrapper.appendChild(avatar);
   }
 
@@ -286,9 +438,16 @@ function scrollBottom() {
   chatBox.scrollTop = chatBox.scrollHeight;
 }
 
-function addUserMessage(text, ts) {
+function addUserMessage(text, ts, mood) {
   const { wrapper, bubble } = createMessageEl("user", ts);
   bubble.textContent = text;
+  if (mood && EMOTIONS[mood]) {
+    const reaction = document.createElement("span");
+    reaction.className = "reaction";
+    reaction.textContent = EMOTIONS[mood].emoji;
+    reaction.title = "JinXuan thấy bạn đang: " + EMOTIONS[mood].label;
+    bubble.appendChild(reaction);
+  }
   chatBox.appendChild(wrapper);
   scrollBottom();
 }
@@ -306,7 +465,7 @@ function showTyping() {
   wrapper.className = "message bot";
   wrapper.id = "typing";
   wrapper.innerHTML =
-    '<div class="msg-avatar">💗</div><div class="msg-body"><div class="bubble typing"><span></span><span></span><span></span></div></div>';
+    `<div class="msg-avatar">${personaAvatar()}</div><div class="msg-body"><div class="bubble typing"><span></span><span></span><span></span></div></div>`;
   chatBox.appendChild(wrapper);
   scrollBottom();
   return wrapper;
@@ -325,7 +484,7 @@ function renderMessages(conv) {
     suggestionsEl.classList.add("hidden");
     for (const m of conv.messages) {
       if (m.role === "user") {
-        addUserMessage(m.text, m.ts);
+        addUserMessage(m.text, m.ts, m.mood);
       } else {
         const el = addBotMessage(m.text, m.ts, { quiet: true });
         if (!m.synthetic) attachActions(el.wrapper, m);
@@ -413,11 +572,11 @@ function abortCurrentStream() {
   }
 }
 
-async function streamChat({ message, history, signal, onDelta }) {
+async function streamChat({ message, history, mood, signal, onDelta }) {
   const res = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, history }),
+    body: JSON.stringify({ message, history, persona: getPersonaKey(), mood }),
     signal
   });
 
@@ -474,7 +633,7 @@ function buildHistory(conv) {
     .map((m) => ({ role: m.role === "bot" ? "model" : "user", parts: [{ text: m.text }] }));
 }
 
-async function requestBotReply(conv, message, hist) {
+async function requestBotReply(conv, message, hist, mood) {
   abortController = new AbortController();
   const typing = showTyping();
   updateRegenVisibility();
@@ -486,6 +645,7 @@ async function requestBotReply(conv, message, hist) {
     await streamChat({
       message,
       history: hist,
+      mood,
       signal: abortController.signal,
       onDelta: (text) => {
         acc = text;
@@ -511,6 +671,7 @@ async function requestBotReply(conv, message, hist) {
       const fresh = addBotMessage(reply, botMsg.ts);
       attachActions(fresh.wrapper, botMsg);
     }
+    speak(reply);
   } catch (e) {
     removeTyping();
 
@@ -552,7 +713,17 @@ async function sendMessage(text) {
   if (!conv) conv = createConversation();
 
   const hist = buildHistory(conv);
-  conv.messages.push({ role: "user", text: message, ts: Date.now() });
+  const mood = detectEmotion(message);
+  conv.messages.push({
+    role: "user",
+    text: message,
+    ts: Date.now(),
+    ...(mood ? { mood } : {})
+  });
+
+  if (mood) {
+    addMoodEntry({ date: todayStr(), mood, source: "chat", ts: Date.now() });
+  }
 
   if (conv.messages.filter((m) => m.role === "user").length === 1) {
     conv.title = message.length > 42 ? message.slice(0, 42) + "…" : message;
@@ -560,11 +731,11 @@ async function sendMessage(text) {
   persist();
   renderConvList();
 
-  addUserMessage(message);
+  addUserMessage(message, Date.now(), mood);
   suggestionsEl.classList.add("hidden");
 
   try {
-    await requestBotReply(conv, message, hist);
+    await requestBotReply(conv, message, hist, mood);
   } finally {
     sendMessage.busy = false;
     updateRegenVisibility();
@@ -591,7 +762,7 @@ async function regenerate() {
 
   const hist = buildHistory(conv).slice(0, -1);
   try {
-    await requestBotReply(conv, lastUser.text, hist);
+    await requestBotReply(conv, lastUser.text, hist, lastUser.mood);
   } finally {
     sendMessage.busy = false;
     updateRegenVisibility();
@@ -610,7 +781,297 @@ chatForm.addEventListener("submit", (e) => {
 suggestionsEl.addEventListener("click", (e) => {
   const chip = e.target.closest(".chip");
   if (!chip) return;
+
+  if (suggestionsEl.dataset.mode === "checkin") {
+    const mood = chip.dataset.mood;
+    if (mood) answerCheckIn(mood);
+    return;
+  }
   sendMessage(chip.textContent.replace(/[^\p{L}\p{N}?.,! ]/gu, "").trim());
+});
+
+/* ---------- Chat bằng giọng nói ---------- */
+
+let ttsEnabled = localStorage.getItem(TTS_KEY) === "1";
+
+function updateTtsBtn() {
+  ttsBtn.textContent = ttsEnabled ? "🔊" : "🔇";
+  ttsBtn.title = ttsEnabled ? "Tắt đọc phản hồi" : "Đọc phản hồi bằng giọng nói";
+  ttsBtn.classList.toggle("active", ttsEnabled);
+}
+
+function cleanForSpeech(text) {
+  return text
+    .replace(/\*\*/g, "")
+    .replace(/^\s*[-•*]\s+/gm, "")
+    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}\u{2190}-\u{21FF}]/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function stopSpeaking() {
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
+}
+
+function speak(text) {
+  if (!ttsEnabled || !("speechSynthesis" in window)) return;
+  speechSynthesis.cancel();
+  const utter = new SpeechSynthesisUtterance(cleanForSpeech(text));
+  utter.lang = "vi-VN";
+  utter.rate = 1;
+  const voice = speechSynthesis.getVoices().find((v) => /^vi/i.test(v.lang));
+  if (voice) utter.voice = voice;
+  speechSynthesis.speak(utter);
+}
+
+if ("speechSynthesis" in window) {
+  speechSynthesis.onvoiceschanged = () => {};
+}
+updateTtsBtn();
+
+ttsBtn.addEventListener("click", () => {
+  ttsEnabled = !ttsEnabled;
+  localStorage.setItem(TTS_KEY, ttsEnabled ? "1" : "0");
+  if (!ttsEnabled) stopSpeaking();
+  updateTtsBtn();
+});
+
+const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null;
+let listening = false;
+
+if (SpeechRec) {
+  recognition = new SpeechRec();
+  recognition.lang = "vi-VN";
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+
+  recognition.onresult = (e) => {
+    const transcript = e.results[0][0].transcript;
+    messageInput.value = transcript;
+    sendMessage(transcript);
+    messageInput.value = "";
+  };
+  const stopListen = () => {
+    listening = false;
+    micBtn.classList.remove("listening");
+  };
+  recognition.onend = stopListen;
+  recognition.onerror = stopListen;
+
+  micBtn.addEventListener("click", () => {
+    if (listening) {
+      recognition.stop();
+      return;
+    }
+    if (sendMessage.busy) return;
+    stopSpeaking();
+    try {
+      recognition.start();
+      listening = true;
+      micBtn.classList.add("listening");
+    } catch {}
+  });
+} else {
+  micBtn.style.display = "none";
+  micBtn.title = "Trình duyệt không hỗ trợ nhận giọng nói";
+}
+
+/* ---------- Check-in hằng ngày ---------- */
+
+function maybeCheckIn() {
+  if (localStorage.getItem(CHECKIN_KEY) === todayStr()) return;
+  setTimeout(() => {
+    const conv = getActive();
+    if (!conv) return;
+    const text = "☀️ **Check-in nhanh** nè: hôm nay bạn cảm thấy thế nào?";
+    conv.messages.push({ role: "bot", synthetic: true, text, ts: Date.now() });
+    persist();
+    addBotMessage(text);
+    showCheckInChips();
+  }, 1000);
+}
+
+function showCheckInChips() {
+  const options = ["happy", "neutral", "tired", "sad"];
+  suggestionsEl.dataset.mode = "checkin";
+  suggestionsEl.innerHTML = "";
+  for (const key of options) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "chip";
+    btn.dataset.mood = key;
+    btn.textContent = `${EMOTIONS[key].emoji} ${EMOTIONS[key].label}`;
+    suggestionsEl.appendChild(btn);
+  }
+  suggestionsEl.classList.remove("hidden");
+}
+
+function restoreSuggestions() {
+  delete suggestionsEl.dataset.mode;
+  suggestionsEl.innerHTML = SUGGESTIONS_DEFAULT_HTML;
+}
+
+const CHECKIN_REPLIES = {
+  happy: "Nghe bạn vui là mình mừng quá! 🎉 Giữ năng lượng này nha, muốn kể gì cứ kể mình nghe 💕",
+  neutral: "Một ngày bình thường cũng là một ngày ổn 👍 Khi nào muốn tâm sự gì thì mình luôn ở đây nha 🌷",
+  tired: "Mệt thì cứ nghỉ một chút nha, không phải lúc nào cũng phải gồng 💗 Uống nước, vươn vai rồi từ từ tính tiếp!",
+  sad: "Cảm ơn bạn đã chia sẻ với mình 🌷 Bạn không cần gồng lên trước mình đâu. Muốn tâm sự chuyện gì thì mình nghe hết nha."
+};
+
+function answerCheckIn(mood) {
+  localStorage.setItem(CHECKIN_KEY, todayStr());
+  addMoodEntry({ date: todayStr(), mood, source: "checkin", ts: Date.now() });
+  restoreSuggestions();
+  suggestionsEl.classList.add("hidden");
+
+  const conv = getActive();
+  if (conv) {
+    const text = CHECKIN_REPLIES[mood] || CHECKIN_REPLIES.neutral;
+    conv.messages.push({ role: "bot", synthetic: true, text, ts: Date.now() });
+    persist();
+    addBotMessage(text);
+  }
+  messageInput.focus();
+}
+
+/* ---------- Biểu đồ tâm trạng ---------- */
+
+const WEEKDAY_LABELS = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
+
+function lastNDates(n) {
+  const out = [];
+  const now = new Date();
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(now.getDate() - i);
+    out.push(d);
+  }
+  return out;
+}
+
+function renderMoodChart(range) {
+  currentRange = range;
+  document.querySelectorAll(".mood-tab").forEach((b) => {
+    b.classList.toggle("active", b.dataset.range === range);
+  });
+
+  moodChartEl.innerHTML = "";
+  const days = lastNDates(range === "week" ? 7 : 30);
+  const byDate = {};
+  for (const entry of moodLog) {
+    (byDate[entry.date] = byDate[entry.date] || []).push(entry);
+  }
+
+  for (const day of days) {
+    const dateStr = todayStr(day);
+    const entries = byDate[dateStr] || [];
+
+    const col = document.createElement("div");
+    col.className = "chart-col";
+
+    const track = document.createElement("div");
+    track.className = "chart-track";
+
+    const bar = document.createElement("div");
+    bar.className = "chart-bar";
+
+    if (entries.length) {
+      let sum = 0;
+      const counts = {};
+      for (const e of entries) {
+        sum += EMOTIONS[e.mood]?.score ?? 3;
+        counts[e.mood] = (counts[e.mood] || 0) + 1;
+      }
+      const avg = sum / entries.length;
+      const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+      bar.style.height = Math.max(10, Math.round((avg / 5) * 100)) + "%";
+      bar.style.background = EMOTIONS[top].color;
+      col.title = `${dateStr}: ${EMOTIONS[top].emoji} ${EMOTIONS[top].label} (${entries.length} lần ghi nhận)`;
+    } else {
+      bar.classList.add("empty");
+      bar.style.height = "6%";
+    }
+
+    track.appendChild(bar);
+    col.appendChild(track);
+
+    const label = document.createElement("span");
+    label.className = "chart-label";
+    label.textContent =
+      range === "week" ? WEEKDAY_LABELS[day.getDay()] : String(day.getDate());
+    col.appendChild(label);
+
+    moodChartEl.appendChild(col);
+  }
+}
+
+document.querySelectorAll(".mood-tab").forEach((tab) => {
+  tab.addEventListener("click", () => renderMoodChart(tab.dataset.range));
+});
+
+/* ---------- Tổng kết tuần ---------- */
+
+function buildWeeklySummary() {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 7);
+  const cutoffStr = todayStr(cutoff);
+  const recent = moodLog.filter((e) => e.date >= cutoffStr);
+
+  if (!recent.length) {
+    return "Tuần này bạn chưa ghi lại tâm trạng nào cả 🥺 Check-in mỗi sáng hoặc cứ trò chuyện với mình — mình sẽ tự để ý cảm xúc của bạn và tổng kết giúp nha!";
+  }
+
+  const counts = {};
+  for (const e of recent) {
+    counts[e.mood] = (counts[e.mood] || 0) + 1;
+  }
+  const ranked = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  const dominant = ranked[0][0];
+
+  const openers = {
+    happy: "Nghe kể tuần này bạn khá vui vẻ đó nha 🎉 Mình vui thay!",
+    love: "Tuần này tràn ngập sắc hồng nhỉ 🥰 Thật đáng mừng!",
+    neutral: "Tuần này của bạn khá êm đềm, ổn định 👍",
+    tired: "Tuần này bạn có vẻ hơi mệt 😞 Cho mình ôm bạn một cái nha 🫂",
+    anxious: "Tuần này bạn lo nghĩ nhiều quá 😰 Không sao đâu, có mình ở đây.",
+    sad: "Tuần này bạn hơi buồn nha 🌷 Cảm ơn bạn vì vẫn cố gắng qua từng ngày.",
+    angry: "Tuần này có nhiều chuyện làm bạn bực mình nhỉ 😤 Giận thì giận, nhưng đừng quên thương bản thân nha."
+  };
+
+  const tips = {
+    happy: "Tip nhỏ: lưu lại những khoảnh khắc vui này vào nhật ký, lúc buồn đọc lại sẽ đỡ hơn nhiều đó 💛",
+    love: "Tip nhỏ: tình cảm đẹp nhất khi cả hai đều chủ quan ngang nhau, nhớ giữ sự tự tin của bạn nhé 💕",
+    neutral: "Tip nhỏ: thử hẹn một hoạt động mới trong tuần tới cho cuộc sống thêm màu sắc nha ✨",
+    tired: "Tip nhỏ: ngủ đủ giường + bớt một việc không cần thiết trong tuần này nhé. Bạn không máy móc mà 💗",
+    anxious: "Tip nhỏ: viết ra hết điều bạn lo ra giấy, rồi chia 'lo được kiểm soát' và 'không kiểm soát' — bạn sẽ nhẹ hơn ngay 🌷",
+    sad: "Tip nhỏ: đừng ép mình phải vui ngay. Tự cho phép mình buồn, rồi từng bước một, mình đi cùng bạn nha 💙",
+    angry: "Tip nhỏ: trước khi phản hồi ai đó khi đang giận, hít thở sâu đếm đến 10 rồi hãy nhắn tin nha 🔥"
+  };
+
+  const lines = ranked.map(
+    ([mood, count]) => `- ${EMOTIONS[mood].emoji} **${EMOTIONS[mood].label}**: ${count} lần`
+  );
+
+  return (
+    openers[dominant] +
+    "\n\nTổng kết 7 ngày qua:\n" +
+    lines.join("\n") +
+    "\n\n" +
+    tips[dominant]
+  );
+}
+
+weeklySummaryBtn.addEventListener("click", () => {
+  if (sendMessage.busy) return;
+  abortCurrentStream();
+  const conv = getActive() || createConversation();
+  const text = buildWeeklySummary();
+  conv.messages.push({ role: "bot", synthetic: true, text, ts: Date.now() });
+  persist();
+  addBotMessage(text);
+  speak(text);
+  closeSidebar();
 });
 
 /* ---------- Khởi động ---------- */
@@ -626,6 +1087,9 @@ if (conversations.length) {
 } else {
   createConversation();
 }
+
+renderMoodChart("week");
+maybeCheckIn();
 
 /* Hiệu ứng trái tim nền (giữ nguyên từ bản cũ) */
 function spawnHearts() {

@@ -31,6 +31,10 @@ Key được lưu trong `localStorage` của trình duyệt trên máy bạn, kh
 - ⌨️ Chip gợi ý câu hỏi nhanh khi mới vào
 - ⚙️ Nhập/quản lý API key ngay trên web
 - 📱 Responsive, dùng tốt trên điện thoại
+- 😎 3 nhân vật tư vấn: Bạn thân thẳng thắn / Chuyên gia tâm lý / Chị đại sắc sảo (đổi ở dropdown trên header)
+- 😊 Nhận diện cảm xúc tin nhắn → hiện reaction emoji + bot điều chỉnh tone theo cảm xúc
+- 🎤 Chat giọng nói: bấm mic để nói, bấm loa 🔊 để bot đọc phản hồi tiếng Việt
+- ☀️ Check-in hằng ngày + nhật ký tâm trạng với biểu đồ tuần/tháng và tổng kết tuần
 
 ## Lưu ý bảo mật
 
