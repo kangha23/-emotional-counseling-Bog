@@ -108,7 +108,7 @@
         <h2 id="councilModalTitle">👥 Hội đồng tư vấn</h2>
         <button type="button" class="modal-close" id="councilCloseBtn" aria-label="Đóng hội đồng tư vấn">✕</button>
       </div>
-      <p class="modal-sub">Bạn thân, Chuyên gia tâm lý và Chị đại sẽ cùng phân tích tình huống của bạn — có phản biện nhau luôn đó!</p>
+      <p class="modal-sub">Quy trình: Hội đồng hỏi làm rõ (nếu cần) → tranh luận 3 góc nhìn → bảng quyết định → kế hoạch hành động. Bạn thân, Chuyên gia và Chị đại sẽ phản biện nhau luôn đó!</p>
       <label class="modal-label" for="councilSituationInput">Tình huống <span>bắt buộc</span></label>
       <textarea id="councilSituationInput" class="modal-input" rows="4" placeholder="Ai liên quan, chuyện gì đã xảy ra và điều gì khiến bạn phân vân?" maxlength="800" required></textarea>
       <label class="modal-label" for="councilQuestionInput">Điều bạn muốn hội đồng giúp quyết định <span>không bắt buộc</span></label>
@@ -117,6 +117,7 @@
     </div>
   </div>
 
+  <script src="council-parser.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
