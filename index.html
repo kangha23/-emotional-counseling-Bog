@@ -39,6 +39,7 @@
         <h2>Hội thoại</h2>
         <div class="sidebar-head-actions">
           <button type="button" class="rehearsal-open-btn" id="rehearsalOpenBtn" title="Luyện nói trước khi nói thật">🎭</button>
+          <button type="button" class="rehearsal-open-btn" id="councilOpenBtn" title="Hội đồng tư vấn">👥</button>
           <button type="button" class="new-chat-btn" id="newChatBtn">＋ Mới</button>
         </div>
       </div>
@@ -93,6 +94,19 @@
       <textarea id="situationInput" class="modal-input" rows="3" placeholder="Chuyện gì đang xảy ra? VD: Hôm qua tớ với cậu ấy cãi nhau vì tớ quên sinh nhật..." maxlength="500"></textarea>
       <input type="text" id="goalInput" class="modal-input" placeholder="Bạn muốn đạt được điều gì? VD: xin lỗi và làm hòa" maxlength="120" />
       <button type="button" class="modal-start-btn" id="rehearsalStartBtn">Bắt đầu luyện tập →</button>
+    </div>
+  </div>
+
+  <div class="modal-backdrop hidden" id="councilModal">
+    <div class="modal">
+      <div class="modal-head">
+        <h2>👥 Hội đồng tư vấn</h2>
+        <button type="button" class="modal-close" id="councilCloseBtn">✕</button>
+      </div>
+      <p class="modal-sub">Bạn thân, Chuyên gia tâm lý và Chị đại sẽ cùng phân tích tình huống của bạn — có phản biện nhau luôn đó!</p>
+      <textarea id="councilSituationInput" class="modal-input" rows="4" placeholder="Kể hội đồng nghe tình huống của bạn... VD: Có hai người cùng theo đuổi mình, một người ổn định một người rất hợp nhưng xa..." maxlength="800"></textarea>
+      <input type="text" id="councilQuestionInput" class="modal-input" placeholder="Câu hỏi cụ thể? VD: Nên chọn ai?" maxlength="150" />
+      <button type="button" class="modal-start-btn" id="councilStartBtn">Triệu tập hội đồng →</button>
     </div>
   </div>
 

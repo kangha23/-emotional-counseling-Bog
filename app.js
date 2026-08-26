@@ -120,6 +120,12 @@ const roleNameInput = document.getElementById("roleNameInput");
 const situationInput = document.getElementById("situationInput");
 const goalInput = document.getElementById("goalInput");
 const rehearsalStartBtn = document.getElementById("rehearsalStartBtn");
+const councilOpenBtn = document.getElementById("councilOpenBtn");
+const councilModalEl = document.getElementById("councilModal");
+const councilCloseBtn = document.getElementById("councilCloseBtn");
+const councilSituationInput = document.getElementById("councilSituationInput");
+const councilQuestionInput = document.getElementById("councilQuestionInput");
+const councilStartBtn = document.getElementById("councilStartBtn");
 
 let conversations = [];
 let activeId = null;
@@ -500,6 +506,10 @@ function renderMessages(conv) {
         addUserMessage(m.text, m.ts, m.mood);
       } else {
         const el = addBotMessage(m.text, m.ts, { quiet: true });
+        if (m.council) {
+          el.bubble.classList.add("council");
+          el.bubble.innerHTML = renderCouncilCards(m.text);
+        }
         if (!m.synthetic) attachActions(el.wrapper, m);
       }
     }
@@ -651,6 +661,7 @@ async function requestBotReply(conv, message, hist, mood, extra = {}) {
   abortController = new AbortController();
   const typing = showTyping();
   updateRegenVisibility();
+  const isCouncil = extra.mode === "council";
 
   let acc = "";
   let el = null;
@@ -668,22 +679,37 @@ async function requestBotReply(conv, message, hist, mood, extra = {}) {
           removeTyping();
           el = addBotMessage("", Date.now(), { quiet: true });
         }
-        el.bubble.innerHTML = renderRich(acc) + '<span class="caret"></span>';
+        if (isCouncil) {
+          el.bubble.classList.add("council");
+          el.bubble.innerHTML = renderCouncilCards(acc) + '<span class="caret"></span>';
+        } else {
+          el.bubble.innerHTML = renderRich(acc) + '<span class="caret"></span>';
+        }
         scrollBottom();
       }
     });
 
     const reply = acc.trim() || "Xin lỗi, mình chưa trả lời được lúc này 🌷";
     const botMsg = { role: "bot", text: reply, ts: Date.now() };
+    if (isCouncil) botMsg.council = true;
     conv.messages.push(botMsg);
     persist();
 
     if (el) {
-      el.bubble.innerHTML = renderRich(reply);
+      if (isCouncil) {
+        el.bubble.classList.add("council");
+        el.bubble.innerHTML = renderCouncilCards(reply);
+      } else {
+        el.bubble.innerHTML = renderRich(reply);
+      }
       attachActions(el.wrapper, botMsg);
     } else {
       removeTyping();
       const fresh = addBotMessage(reply, botMsg.ts);
+      if (isCouncil) {
+        fresh.bubble.classList.add("council");
+        fresh.bubble.innerHTML = renderCouncilCards(reply);
+      }
       attachActions(fresh.wrapper, botMsg);
     }
     speak(reply);
@@ -753,7 +779,9 @@ async function sendMessage(text) {
   const extra =
     conv.mode === "rehearsal" && !conv.rehearsalEnded
       ? { mode: "rehearsal", scenario: conv.scenario }
-      : {};
+      : conv.mode === "council"
+        ? { mode: "council", scenario: conv.scenario }
+        : {};
 
   try {
     await requestBotReply(conv, message, hist, mood, extra);
@@ -785,7 +813,9 @@ async function regenerate() {
   const extra =
     conv.mode === "rehearsal" && !conv.rehearsalEnded
       ? { mode: "rehearsal", scenario: conv.scenario }
-      : {};
+      : conv.mode === "council"
+        ? { mode: "council", scenario: conv.scenario }
+        : {};
   try {
     await requestBotReply(conv, lastUser.text, hist, lastUser.mood, extra);
   } finally {
@@ -1223,6 +1253,100 @@ endRehearsalBtn.addEventListener("click", async () => {
     endRehearsalBtn.disabled = false;
     updateRegenVisibility();
     updateRehearsalBanner();
+  }
+});
+
+/* ---------- Hội đồng tư vấn ---------- */
+
+function parseCouncil(text) {
+  const re = /\[(BẠN THÂN|CHUYÊN GIA|CHỊ ĐẠI|KẾT LUẬN)[^\]]*\]/g;
+  const sections = [];
+  let match;
+  let lastIndex = 0;
+  let current = null;
+  while ((match = re.exec(text))) {
+    if (current) current.body = text.slice(lastIndex, match.index).trim();
+    current = { name: match[1], body: "" };
+    sections.push(current);
+    lastIndex = re.lastIndex;
+  }
+  if (current) current.body = text.slice(lastIndex).trim();
+  return sections;
+}
+
+function councilMeta(name) {
+  if (name.includes("BẠN THÂN")) return { emoji: "😎", label: "Bạn thân" };
+  if (name.includes("CHUYÊN GIA")) return { emoji: "🩺", label: "Chuyên gia" };
+  if (name.includes("CHỊ ĐẠI")) return { emoji: "💅", label: "Chị đại" };
+  return { emoji: "✨", label: "Kết luận hội đồng", final: true };
+}
+
+function renderCouncilCards(text) {
+  const sections = parseCouncil(text);
+  if (!sections.length) return renderRich(text);
+  return sections
+    .map((s) => {
+      const meta = councilMeta(s.name);
+      return (
+        `<div class="council-card${meta.final ? " final" : ""}">` +
+        `<div class="cc-head"><span class="cc-emoji">${meta.emoji}</span><span class="cc-name">${meta.label}</span></div>` +
+        `<div class="cc-body">${renderRich(s.body)}</div>` +
+        `</div>`
+      );
+    })
+    .join("");
+}
+
+function openCouncilModal() {
+  councilModalEl.classList.remove("hidden");
+  councilSituationInput.focus();
+}
+
+function closeCouncilModal() {
+  councilModalEl.classList.add("hidden");
+}
+
+councilOpenBtn.addEventListener("click", () => {
+  closeSidebar();
+  openCouncilModal();
+});
+councilCloseBtn.addEventListener("click", closeCouncilModal);
+councilModalEl.addEventListener("click", (e) => {
+  if (e.target === councilModalEl) closeCouncilModal();
+});
+
+councilStartBtn.addEventListener("click", async () => {
+  const situation = councilSituationInput.value.trim();
+  if (!situation) {
+    councilSituationInput.classList.add("error");
+    councilSituationInput.focus();
+    setTimeout(() => councilSituationInput.classList.remove("error"), 1500);
+    return;
+  }
+
+  abortCurrentStream();
+  const conv = createConversation();
+  conv.mode = "council";
+  conv.scenario = {
+    situation,
+    question: councilQuestionInput.value.trim()
+  };
+  conv.title = "👥 " + (situation.length > 34 ? situation.slice(0, 34) + "…" : situation);
+  persist();
+  renderConvList();
+  renderMessages(conv);
+
+  closeCouncilModal();
+  councilSituationInput.value = "";
+  councilQuestionInput.value = "";
+
+  const kick = "(Bắt đầu hội đồng. Hãy phân tích tình huống và cho lời khuyên theo đúng định dạng.)";
+  sendMessage.busy = true;
+  try {
+    await requestBotReply(conv, kick, [], null, { mode: "council", scenario: conv.scenario });
+  } finally {
+    sendMessage.busy = false;
+    updateRegenVisibility();
   }
 });
 

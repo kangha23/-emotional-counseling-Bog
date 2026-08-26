@@ -70,6 +70,31 @@ Quy tắc:
 - Mỗi lượt nói dưới 80 từ.`;
 }
 
+function buildCouncilPrompt(sc) {
+  return `Bạn là điều phối viên một "HỘI ĐỒNG TƯ VẤN TÌNH CẢM" gồm 3 thành viên tính cách rất khác nhau:
+1. BẠN THÂN 😎 — thẳng thắn, dí dỏm, nói chuyện giới trẻ, ưu tiên cảm xúc trước mắt của người dùng.
+2. CHUYÊN GIA 🩺 — chuyên gia tâm lý dịu dàng, phân tích sâu sắc, thận trọng, thấu cảm.
+3. CHỊ ĐẠI 💅 — sắc sảo, thực tế, mạnh mẽ, đề cao giá trị bản thân, không bao giờ nuông chiều sự tự thương hại.
+
+Tình huống: ${sc.situation}
+Câu hỏi: ${sc.question || "Nên làm gì tiếp theo?"}
+
+Yêu cầu:
+- Mỗi thành viên phát biểu đúng 1 lượt, dưới 90 từ, đúng tính cách và cách xưng hô đặc trưng của mình.
+- Thành viên sau CÓ THỂ đồng ý hoặc phản biện ngắn gọn thành viên trước ngay trong phần phát biểu của mình (ví dụ: "Chị không đồng ý với cậu bạn thân đâu...").
+- Cuối cùng viết KẾT LUẬN chung: chỉ ra điểm đồng thuận, rồi đưa lời khuyên hành động cụ thể nhất (1-3 bước).
+- Định dạng bắt buộc — mỗi phần bắt đầu bằng đúng một dòng:
+[BẠN THÂN 😎]
+[nội dung]
+[CHUYÊN GIA 🩺]
+[nội dung]
+[CHỊ ĐẠI 💅]
+[nội dung]
+[KẾT LUẬN ✨]
+[nội dung]
+- Không viết bất kỳ lời nào ngoài 4 phần trên. Tiếng Việt.`;
+}
+
 const COACH_PROMPT = `Bạn vừa kết thúc một phiên LUYỆN TẬP HỘI THOẠI: bạn đóng vai người trong cuộc, người dùng luyện cách nói chuyện thật với người đó. Lịch sử hội thoại bên dưới là bản ghi phiên tập.
 
 Bây giờ hãy thoát vai và chuyển thành huấn luyện viên giao tiếp:
@@ -122,6 +147,8 @@ module.exports = async function handler(req, res) {
     systemText = COACH_PROMPT;
   } else if (mode === "rehearsal" && scenario && scenario.role) {
     systemText = buildRehearsalPrompt(scenario);
+  } else if (mode === "council" && scenario && scenario.situation) {
+    systemText = buildCouncilPrompt(scenario);
   } else {
     systemText = BASE_PROMPT + "\n\n" + PERSONAS[personaKey].prompt;
     if (mood && MOOD_HINTS[mood]) {
