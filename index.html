@@ -11,6 +11,7 @@
 </head>
 <body>
   <div class="bg-decor" id="bgDecor"></div>
+  <div class="mood-tint" id="moodTint"></div>
 
   <div class="chat-container">
     <header class="chat-header">
@@ -29,13 +30,17 @@
         </button>
         <div class="persona-menu" id="personaMenu"></div>
       </div>
+      <button type="button" class="icon-btn" id="musicBtn" title="Nhạc nền theo tâm trạng">🎵</button>
       <button type="button" class="icon-btn" id="themeToggle" title="Chế độ tối">🌙</button>
     </header>
 
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-head">
         <h2>Hội thoại</h2>
-        <button type="button" class="new-chat-btn" id="newChatBtn">＋ Mới</button>
+        <div class="sidebar-head-actions">
+          <button type="button" class="rehearsal-open-btn" id="rehearsalOpenBtn" title="Luyện nói trước khi nói thật">🎭</button>
+          <button type="button" class="new-chat-btn" id="newChatBtn">＋ Mới</button>
+        </div>
       </div>
       <div class="mood-panel">
         <div class="mood-panel-head">
@@ -54,6 +59,11 @@
 
     <main class="chat-box" id="chatBox"></main>
 
+    <div class="rehearsal-banner hidden" id="rehearsalBanner">
+      <span class="rb-text">🎭 Đang đóng vai <b id="rehearsalRoleName"></b></span>
+      <button type="button" class="rb-end-btn" id="endRehearsalBtn">Kết thúc &amp; nhận xét</button>
+    </div>
+
     <div class="suggestions" id="suggestions">
       <button class="chip">Crush không rep tin nhắn, nên làm gì? 💬</button>
       <button class="chip">Làm sao để tỏ tình tự nhiên? 🌹</button>
@@ -69,6 +79,21 @@
         <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
       </button>
     </form>
+  </div>
+
+  <div class="modal-backdrop hidden" id="rehearsalModal">
+    <div class="modal">
+      <div class="modal-head">
+        <h2>🎭 Luyện nói trước khi nói thật</h2>
+        <button type="button" class="modal-close" id="rehearsalCloseBtn">✕</button>
+      </div>
+      <p class="modal-sub">JinXuan sẽ đóng vai người đó. Bạn tập nói đến khi tự tin, rồi mới gặp thật!</p>
+      <div class="role-grid" id="roleGrid"></div>
+      <input type="text" id="roleNameInput" class="modal-input" placeholder="Tên người đó (không bắt buộc)" maxlength="30" />
+      <textarea id="situationInput" class="modal-input" rows="3" placeholder="Chuyện gì đang xảy ra? VD: Hôm qua tớ với cậu ấy cãi nhau vì tớ quên sinh nhật..." maxlength="500"></textarea>
+      <input type="text" id="goalInput" class="modal-input" placeholder="Bạn muốn đạt được điều gì? VD: xin lỗi và làm hòa" maxlength="120" />
+      <button type="button" class="modal-start-btn" id="rehearsalStartBtn">Bắt đầu luyện tập →</button>
+    </div>
   </div>
 
   <script src="app.js"></script>

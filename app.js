@@ -107,6 +107,19 @@ const micBtn = document.getElementById("micBtn");
 const ttsBtn = document.getElementById("ttsBtn");
 const moodChartEl = document.getElementById("moodChart");
 const weeklySummaryBtn = document.getElementById("weeklySummaryBtn");
+const musicBtn = document.getElementById("musicBtn");
+const moodTintEl = document.getElementById("moodTint");
+const rehearsalOpenBtn = document.getElementById("rehearsalOpenBtn");
+const rehearsalBannerEl = document.getElementById("rehearsalBanner");
+const rehearsalRoleNameEl = document.getElementById("rehearsalRoleName");
+const endRehearsalBtn = document.getElementById("endRehearsalBtn");
+const rehearsalModalEl = document.getElementById("rehearsalModal");
+const rehearsalCloseBtn = document.getElementById("rehearsalCloseBtn");
+const roleGridEl = document.getElementById("roleGrid");
+const roleNameInput = document.getElementById("roleNameInput");
+const situationInput = document.getElementById("situationInput");
+const goalInput = document.getElementById("goalInput");
+const rehearsalStartBtn = document.getElementById("rehearsalStartBtn");
 
 let conversations = [];
 let activeId = null;
@@ -493,6 +506,7 @@ function renderMessages(conv) {
     scrollBottom();
   }
   updateRegenVisibility();
+  updateRehearsalBanner();
 }
 
 /* ---------- Action bar (copy / hỏi lại / đánh giá) ---------- */
@@ -572,11 +586,11 @@ function abortCurrentStream() {
   }
 }
 
-async function streamChat({ message, history, mood, signal, onDelta }) {
+async function streamChat({ message, history, mood, extra = {}, signal, onDelta }) {
   const res = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, history, persona: getPersonaKey(), mood }),
+    body: JSON.stringify({ message, history, persona: getPersonaKey(), mood, ...extra }),
     signal
   });
 
@@ -633,7 +647,7 @@ function buildHistory(conv) {
     .map((m) => ({ role: m.role === "bot" ? "model" : "user", parts: [{ text: m.text }] }));
 }
 
-async function requestBotReply(conv, message, hist, mood) {
+async function requestBotReply(conv, message, hist, mood, extra = {}) {
   abortController = new AbortController();
   const typing = showTyping();
   updateRegenVisibility();
@@ -646,6 +660,7 @@ async function requestBotReply(conv, message, hist, mood) {
       message,
       history: hist,
       mood,
+      extra,
       signal: abortController.signal,
       onDelta: (text) => {
         acc = text;
@@ -724,6 +739,7 @@ async function sendMessage(text) {
   if (mood) {
     addMoodEntry({ date: todayStr(), mood, source: "chat", ts: Date.now() });
   }
+  setMoodAmbience(mood || "neutral");
 
   if (conv.messages.filter((m) => m.role === "user").length === 1) {
     conv.title = message.length > 42 ? message.slice(0, 42) + "…" : message;
@@ -734,8 +750,13 @@ async function sendMessage(text) {
   addUserMessage(message, Date.now(), mood);
   suggestionsEl.classList.add("hidden");
 
+  const extra =
+    conv.mode === "rehearsal" && !conv.rehearsalEnded
+      ? { mode: "rehearsal", scenario: conv.scenario }
+      : {};
+
   try {
-    await requestBotReply(conv, message, hist, mood);
+    await requestBotReply(conv, message, hist, mood, extra);
   } finally {
     sendMessage.busy = false;
     updateRegenVisibility();
@@ -761,8 +782,12 @@ async function regenerate() {
   renderMessages(conv);
 
   const hist = buildHistory(conv).slice(0, -1);
+  const extra =
+    conv.mode === "rehearsal" && !conv.rehearsalEnded
+      ? { mode: "rehearsal", scenario: conv.scenario }
+      : {};
   try {
-    await requestBotReply(conv, lastUser.text, hist, lastUser.mood);
+    await requestBotReply(conv, lastUser.text, hist, lastUser.mood, extra);
   } finally {
     sendMessage.busy = false;
     updateRegenVisibility();
@@ -922,6 +947,7 @@ const CHECKIN_REPLIES = {
 function answerCheckIn(mood) {
   localStorage.setItem(CHECKIN_KEY, todayStr());
   addMoodEntry({ date: todayStr(), mood, source: "checkin", ts: Date.now() });
+  setMoodAmbience(mood);
   restoreSuggestions();
   suggestionsEl.classList.add("hidden");
 
@@ -1074,9 +1100,322 @@ weeklySummaryBtn.addEventListener("click", () => {
   closeSidebar();
 });
 
+/* ---------- Rehearsal Mode: luyện nói trước khi nói thật ---------- */
+
+const REHEARSAL_ROLES = [
+  { key: "crush", label: "Crush", emoji: "😊" },
+  { key: "partner", label: "Người yêu", emoji: "💑" },
+  { key: "ex", label: "Người yêu cũ", emoji: "💔" },
+  { key: "friend", label: "Bạn thân", emoji: "🤝" },
+  { key: "parent", label: "Bố/Mẹ", emoji: "👪" },
+  { key: "boss", label: "Sếp", emoji: "👔" },
+  { key: "custom", label: "Khác", emoji: "✏️" }
+];
+
+let selectedRole = "crush";
+
+function updateRehearsalBanner() {
+  const conv = getActive();
+  const show = conv && conv.mode === "rehearsal" && !conv.rehearsalEnded;
+  rehearsalBannerEl.classList.toggle("hidden", !show);
+  if (show) {
+    const role = REHEARSAL_ROLES.find((r) => r.key === conv.scenario.role);
+    rehearsalRoleNameEl.textContent =
+      conv.scenario.roleName || `${role?.emoji || ""} ${role?.label || "nhân vật"}`.trim();
+  }
+}
+
+function renderRoleGrid() {
+  roleGridEl.innerHTML = "";
+  for (const r of REHEARSAL_ROLES) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "role-chip" + (r.key === selectedRole ? " active" : "");
+    chip.textContent = `${r.emoji} ${r.label}`;
+    chip.addEventListener("click", () => {
+      selectedRole = r.key;
+      renderRoleGrid();
+    });
+    roleGridEl.appendChild(chip);
+  }
+}
+
+function openRehearsalModal() {
+  renderRoleGrid();
+  rehearsalModalEl.classList.remove("hidden");
+}
+
+function closeRehearsalModal() {
+  rehearsalModalEl.classList.add("hidden");
+}
+
+rehearsalOpenBtn.addEventListener("click", () => {
+  closeSidebar();
+  openRehearsalModal();
+});
+rehearsalCloseBtn.addEventListener("click", closeRehearsalModal);
+rehearsalModalEl.addEventListener("click", (e) => {
+  if (e.target === rehearsalModalEl) closeRehearsalModal();
+});
+
+rehearsalStartBtn.addEventListener("click", async () => {
+  const situation = situationInput.value.trim();
+  if (!situation) {
+    situationInput.classList.add("error");
+    situationInput.focus();
+    setTimeout(() => situationInput.classList.remove("error"), 1500);
+    return;
+  }
+
+  abortCurrentStream();
+  const conv = createConversation();
+  conv.mode = "rehearsal";
+  conv.scenario = {
+    role: selectedRole,
+    roleName: roleNameInput.value.trim(),
+    situation,
+    goal: goalInput.value.trim()
+  };
+  const role = REHEARSAL_ROLES.find((r) => r.key === selectedRole);
+  conv.title = `🎭 ${role?.label || "Luyện tập"}${conv.scenario.roleName ? ` · ${conv.scenario.roleName}` : ""}`;
+  persist();
+  renderConvList();
+  renderMessages(conv);
+
+  closeRehearsalModal();
+  roleNameInput.value = "";
+  situationInput.value = "";
+  goalInput.value = "";
+
+  updateRehearsalBanner();
+  const kick = "(Bắt đầu phiên luyện tập. Hãy mở đầu đúng vai — nói câu đầu tiên như nhân vật sẽ nói trong tình huống này.)";
+  sendMessage.busy = true;
+  try {
+    await requestBotReply(conv, kick, [], null, { mode: "rehearsal", scenario: conv.scenario });
+  } finally {
+    sendMessage.busy = false;
+    updateRegenVisibility();
+  }
+});
+
+endRehearsalBtn.addEventListener("click", async () => {
+  if (sendMessage.busy) return;
+  const conv = getActive();
+  if (!conv || conv.mode !== "rehearsal" || conv.rehearsalEnded) return;
+
+  sendMessage.busy = true;
+  endRehearsalBtn.disabled = true;
+  const hist = buildHistory(conv);
+  conv.rehearsalEnded = true;
+  persist();
+  updateRehearsalBanner();
+
+  try {
+    await requestBotReply(
+      conv,
+      "(Người dùng bấm kết thúc phiên. Hãy chuyển sang vai huấn luyện viên và đưa nhận xét.)",
+      hist,
+      null,
+      { endRehearsal: true }
+    );
+  } finally {
+    sendMessage.busy = false;
+    endRehearsalBtn.disabled = false;
+    updateRegenVisibility();
+    updateRehearsalBanner();
+  }
+});
+
+/* ---------- Âm nhạc & thời tiết theo tâm trạng ---------- */
+
+const MOOD_THEMES = {
+  happy:   { root: 523.25, intervals: [0, 4, 7, 9, 12], wave: "triangle", rate: 420,  cutoff: 2400, gain: 0.05 },
+  love:    { root: 440.0,  intervals: [0, 3, 7, 10, 12], wave: "sine",     rate: 560,  cutoff: 1800, gain: 0.05 },
+  neutral: { root: 392.0,  intervals: [0, 2, 4, 7, 9],   wave: "sine",     rate: 750,  cutoff: 1400, gain: 0.045 },
+  tired:   { root: 349.23, intervals: [0, 3, 7, 10, 14], wave: "sine",     rate: 950,  cutoff: 1000, gain: 0.04 },
+  anxious: { root: 415.3,  intervals: [0, 2, 5, 7, 10],  wave: "sawtooth", rate: 400,  cutoff: 1500, gain: 0.03 },
+  sad:     { root: 329.63, intervals: [0, 3, 7, 10, 15], wave: "sine",     rate: 1000, cutoff: 900,  gain: 0.045 },
+  angry:   { root: 220.0,  intervals: [0, 3, 6, 7, 10],  wave: "square",   rate: 480,  cutoff: 750,  gain: 0.03 }
+};
+
+const MOOD_TINTS = {
+  happy: "#fbbf24",
+  love: "#ec4899",
+  neutral: "#a855f7",
+  tired: "#818cf8",
+  anxious: "#38bdf8",
+  sad: "#60a5fa",
+  angry: "#ef4444"
+};
+
+const MOOD_WEATHER = {
+  happy: "sparkle",
+  love: "heart",
+  neutral: "heart",
+  tired: "zzz",
+  anxious: "leaf",
+  sad: "rain",
+  angry: "ember"
+};
+
+let currentMood = "neutral";
+let musicEnabled = false;
+let audioCtx = null;
+let musicMaster = null;
+let delayNode = null;
+let musicTimer = null;
+let noteCounter = 0;
+
+function applyWeather(mood) {
+  const decor = document.getElementById("bgDecor");
+  decor.innerHTML = "";
+  const kind = MOOD_WEATHER[mood] || "heart";
+
+  if (kind === "rain") {
+    for (let i = 0; i < 42; i++) {
+      const d = document.createElement("span");
+      d.className = "drop";
+      d.style.left = Math.random() * 100 + "%";
+      d.style.animationDuration = 0.8 + Math.random() * 0.9 + "s";
+      d.style.animationDelay = -Math.random() * 2 + "s";
+      d.style.opacity = 0.25 + Math.random() * 0.35;
+      decor.appendChild(d);
+    }
+    return;
+  }
+
+  const sets = {
+    heart: ["💗", "🩷", "💕", "🌸", "✨"],
+    sparkle: ["✨", "⭐", "🌟", "💫", "🌸"],
+    ember: ["🔥", "✨"],
+    leaf: ["🍃", "🌿"],
+    zzz: ["💤"]
+  };
+  const symbols = sets[kind] || sets.heart;
+  const baseDur = kind === "ember" ? 5 : kind === "zzz" ? 14 : 10;
+
+  for (let i = 0; i < 14; i++) {
+    const h = document.createElement("span");
+    h.className = "heart";
+    h.textContent = symbols[i % symbols.length];
+    h.style.left = Math.random() * 100 + "%";
+    h.style.fontSize = 12 + Math.random() * 16 + "px";
+    h.style.setProperty("--o", (0.15 + Math.random() * 0.25).toFixed(2));
+    h.style.animationDuration = baseDur + Math.random() * 10 + "s";
+    h.style.animationDelay = -Math.random() * 20 + "s";
+    decor.appendChild(h);
+  }
+}
+
+function setMoodAmbience(mood) {
+  if (!mood || !MOOD_TINTS[mood]) return;
+  currentMood = mood;
+  try {
+    localStorage.setItem("jinxuan_ambient_mood", mood);
+  } catch {}
+  moodTintEl.style.background = MOOD_TINTS[mood];
+  moodTintEl.style.opacity = mood === "neutral" ? 0.07 : 0.14;
+  applyWeather(mood);
+}
+
+function ensureAudio() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    musicMaster = audioCtx.createGain();
+    musicMaster.gain.value = 0.6;
+    musicMaster.connect(audioCtx.destination);
+
+    delayNode = audioCtx.createDelay(1);
+    delayNode.delayTime.value = 0.32;
+    const feedback = audioCtx.createGain();
+    feedback.gain.value = 0.35;
+    const wet = audioCtx.createGain();
+    wet.gain.value = 0.4;
+    delayNode.connect(feedback).connect(delayNode);
+    delayNode.connect(wet).connect(musicMaster);
+  }
+  if (audioCtx.state === "suspended") audioCtx.resume();
+  return audioCtx;
+}
+
+function playNote(theme, opts = {}) {
+  const t = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  osc.type = opts.bass ? "sine" : theme.wave;
+  const semi = opts.bass ? 0 : theme.intervals[Math.floor(Math.random() * theme.intervals.length)];
+  osc.frequency.value =
+    theme.root * (opts.bass ? 0.5 : Math.random() < 0.3 ? 2 : 1) * Math.pow(2, semi / 12);
+
+  const g = audioCtx.createGain();
+  const peak = opts.bass ? theme.gain * 1.4 : theme.gain;
+  const dur = opts.bass ? 2.6 : 1.8;
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(peak, t + (opts.bass ? 0.15 : 0.02));
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+
+  const f = audioCtx.createBiquadFilter();
+  f.type = "lowpass";
+  f.frequency.value = opts.bass ? 500 : theme.cutoff;
+
+  osc.connect(f);
+  f.connect(g);
+  g.connect(musicMaster);
+  g.connect(delayNode);
+  osc.start(t);
+  osc.stop(t + dur + 0.1);
+}
+
+function musicTick() {
+  const theme = MOOD_THEMES[currentMood] || MOOD_THEMES.neutral;
+  playNote(theme);
+  if (noteCounter++ % 4 === 0) playNote(theme, { bass: true });
+  musicTimer = setTimeout(musicTick, theme.rate * (0.7 + Math.random() * 0.6));
+}
+
+function startMusic() {
+  ensureAudio();
+  clearTimeout(musicTimer);
+  musicTick();
+}
+
+function stopMusic() {
+  clearTimeout(musicTimer);
+  musicTimer = null;
+  if (audioCtx) audioCtx.suspend();
+}
+
+function updateMusicBtn() {
+  musicBtn.textContent = musicEnabled ? "🎶" : "🎵";
+  musicBtn.title = musicEnabled ? "Tắt nhạc nền" : "Nhạc nền theo tâm trạng";
+  musicBtn.classList.toggle("music-on", musicEnabled);
+}
+
+musicBtn.addEventListener("click", () => {
+  musicEnabled = !musicEnabled;
+  try {
+    localStorage.setItem("jinxuan_music", musicEnabled ? "1" : "0");
+  } catch {}
+  if (musicEnabled) startMusic();
+  else stopMusic();
+  updateMusicBtn();
+});
+
+document.addEventListener("click", function resumeAudioOnce() {
+  if (musicEnabled) ensureAudio();
+  document.removeEventListener("click", resumeAudioOnce);
+});
+
 /* ---------- Khởi động ---------- */
 
-spawnHearts();
+musicEnabled = localStorage.getItem("jinxuan_music") === "1";
+updateMusicBtn();
+
+const savedAmbientMood = localStorage.getItem("jinxuan_ambient_mood");
+if (savedAmbientMood && MOOD_TINTS[savedAmbientMood]) currentMood = savedAmbientMood;
+moodTintEl.style.background = MOOD_TINTS[currentMood];
+moodTintEl.style.opacity = currentMood === "neutral" ? 0.07 : 0.14;
+applyWeather(currentMood);
+if (musicEnabled) startMusic();
 
 conversations = loadConversations();
 if (conversations.length) {
@@ -1091,19 +1430,3 @@ if (conversations.length) {
 renderMoodChart("week");
 maybeCheckIn();
 
-/* Hiệu ứng trái tim nền (giữ nguyên từ bản cũ) */
-function spawnHearts() {
-  const decor = document.getElementById("bgDecor");
-  const symbols = ["💗", "🩷", "💕", "🌸", "✨"];
-  for (let i = 0; i < 14; i++) {
-    const h = document.createElement("span");
-    h.className = "heart";
-    h.textContent = symbols[i % symbols.length];
-    h.style.left = Math.random() * 100 + "%";
-    h.style.fontSize = 12 + Math.random() * 16 + "px";
-    h.style.setProperty("--o", (0.15 + Math.random() * 0.25).toFixed(2));
-    h.style.animationDuration = 10 + Math.random() * 12 + "s";
-    h.style.animationDelay = -Math.random() * 20 + "s";
-    decor.appendChild(h);
-  }
-}

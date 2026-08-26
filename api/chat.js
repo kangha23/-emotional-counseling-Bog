@@ -41,6 +41,44 @@ const PERSONAS = {
 
 const DEFAULT_PERSONA = "chuyen_gia";
 
+const REHEARSAL_ROLES = {
+  crush: "crush của người dùng — hơi khó đoán, chưa chắc chắn về tình cảm",
+  partner: "người yêu của người dùng — đang có mâu thuẫn nhỏ",
+  ex: "người yêu cũ của người dùng — đã chia tay nhưng chưa hết vấn đề",
+  friend: "bạn thân của người dùng — thẳng thắn, quan tâm",
+  parent: "bố/mẹ của người dùng — quan tâm theo kiểu thế hệ cũ",
+  boss: "sếp của người dùng — nghiêm khắc, bận rộn"
+};
+
+function buildRehearsalPrompt(sc) {
+  const base = REHEARSAL_ROLES[sc.role];
+  const roleDesc = base
+    ? `${base}${sc.roleName ? ` (tên: ${sc.roleName})` : ""}`
+    : `${sc.roleName || "một người trong cuộc"} — hãy tự xây dựng tính cách phù hợp với bối cảnh`;
+
+  return `Bạn đang trong phiên LUYỆN TẬP HỘI THOẠI của ứng dụng tư vấn tình cảm JinXuan.
+
+NHIỆM VỤ: Đóng vai ${roleDesc}.
+BỐI CẢNH: ${sc.situation}
+MỤC TIÊU của người dùng: ${sc.goal || "giải quyết tình huống một cách khéo léo"}
+
+Quy tắc:
+- Ở trong vai 100%: phản ứng chân thực như chính người đó, bao gồm cả phản ứng không dễ dàng (bực bội, lạnh nhạt, nghi ngờ...) nếu phù hợp với bối cảnh.
+- Nói như nhắn tin thật: tiếng Việt tự nhiên, ngắn gọn, emoji vừa phải.
+- KHÔNG thoát vai, KHÔNG đưa lời khuyên, KHÔNG tiết lộ mình là AI.
+- Nếu người dùng nói hay, khéo léo thì phản ứng tích cực rõ ràng. Nếu người dùng nói gây tổn thương hoặc thiếu tế nhị, phản ứng tiêu cực hợp lý để họ tự nhìn ra hệ quả.
+- Mỗi lượt nói dưới 80 từ.`;
+}
+
+const COACH_PROMPT = `Bạn vừa kết thúc một phiên LUYỆN TẬP HỘI THOẠI: bạn đóng vai người trong cuộc, người dùng luyện cách nói chuyện thật với người đó. Lịch sử hội thoại bên dưới là bản ghi phiên tập.
+
+Bây giờ hãy thoát vai và chuyển thành huấn luyện viên giao tiếp:
+- Mở đầu bằng nhận xét tổng quan ngắn gọn, chân thành.
+- Gạch đầu dòng 2-3 điểm người dùng làm TỐT (trích dẫn câu cụ thể của họ).
+- Gạch đầu dòng 1-3 điểm NÊN CẢI THIỆN, mỗi điểm kèm một câu nói thay thế cụ thể hay hơn.
+- Kết thúc bằng lời động viên ngắn.
+- Tiếng Việt, dưới 250 từ, giọng ấm áp, không phán xét.`;
+
 const MOOD_HINTS = {
   happy: "vui vẻ, phấn khởi 😊 — hãy tận hưởng và chia sẻ niềm vui cùng bạn ấy",
   love: "rung động, ngập tràn yêu thương 🥰 — hãy khích lệ và đồng hành tinh tế",
@@ -71,7 +109,7 @@ module.exports = async function handler(req, res) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return res.status(500).json({ error: "Thiếu biến môi trường GEMINI_API_KEY" });
 
-  const { message, history = [], persona, mood } = req.body || {};
+  const { message, history = [], persona, mood, mode, scenario, endRehearsal } = req.body || {};
   if (!message || typeof message !== "string") {
     return res.status(400).json({ error: "Thiếu nội dung tin nhắn" });
   }
@@ -79,9 +117,16 @@ module.exports = async function handler(req, res) {
   const personaKey =
     persona && PERSONAS[persona] ? persona : DEFAULT_PERSONA;
 
-  let systemText = BASE_PROMPT + "\n\n" + PERSONAS[personaKey].prompt;
-  if (mood && MOOD_HINTS[mood]) {
-    systemText += `\n\nCảm xúc hiện tại của người dùng: ${MOOD_HINTS[mood]}.`;
+  let systemText;
+  if (endRehearsal) {
+    systemText = COACH_PROMPT;
+  } else if (mode === "rehearsal" && scenario && scenario.role) {
+    systemText = buildRehearsalPrompt(scenario);
+  } else {
+    systemText = BASE_PROMPT + "\n\n" + PERSONAS[personaKey].prompt;
+    if (mood && MOOD_HINTS[mood]) {
+      systemText += `\n\nCảm xúc hiện tại của người dùng: ${MOOD_HINTS[mood]}.`;
+    }
   }
 
   const contents = [...history, { role: "user", parts: [{ text: message.slice(0, 4000) }] }];
