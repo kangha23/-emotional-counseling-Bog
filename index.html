@@ -65,6 +65,11 @@
       <button type="button" class="rb-end-btn" id="endRehearsalBtn">Kết thúc &amp; nhận xét</button>
     </div>
 
+    <div class="council-banner hidden" id="councilBanner">
+      <span class="cb-text">👥 Hội đồng đang bàn: <b id="councilTopic"></b></span>
+      <button type="button" class="cb-end-btn" id="endCouncilBtn">Kết thúc</button>
+    </div>
+
     <div class="suggestions" id="suggestions">
       <button class="chip">Crush không rep tin nhắn, nên làm gì? 💬</button>
       <button class="chip">Làm sao để tỏ tình tự nhiên? 🌹</button>
@@ -97,15 +102,17 @@
     </div>
   </div>
 
-  <div class="modal-backdrop hidden" id="councilModal">
-    <div class="modal">
+  <div class="modal-backdrop hidden" id="councilModal" role="dialog" aria-modal="true" aria-labelledby="councilModalTitle">
+    <div class="modal council-modal">
       <div class="modal-head">
-        <h2>👥 Hội đồng tư vấn</h2>
-        <button type="button" class="modal-close" id="councilCloseBtn">✕</button>
+        <h2 id="councilModalTitle">👥 Hội đồng tư vấn</h2>
+        <button type="button" class="modal-close" id="councilCloseBtn" aria-label="Đóng hội đồng tư vấn">✕</button>
       </div>
       <p class="modal-sub">Bạn thân, Chuyên gia tâm lý và Chị đại sẽ cùng phân tích tình huống của bạn — có phản biện nhau luôn đó!</p>
-      <textarea id="councilSituationInput" class="modal-input" rows="4" placeholder="Kể hội đồng nghe tình huống của bạn... VD: Có hai người cùng theo đuổi mình, một người ổn định một người rất hợp nhưng xa..." maxlength="800"></textarea>
-      <input type="text" id="councilQuestionInput" class="modal-input" placeholder="Câu hỏi cụ thể? VD: Nên chọn ai?" maxlength="150" />
+      <label class="modal-label" for="councilSituationInput">Tình huống <span>bắt buộc</span></label>
+      <textarea id="councilSituationInput" class="modal-input" rows="4" placeholder="Ai liên quan, chuyện gì đã xảy ra và điều gì khiến bạn phân vân?" maxlength="800" required></textarea>
+      <label class="modal-label" for="councilQuestionInput">Điều bạn muốn hội đồng giúp quyết định <span>không bắt buộc</span></label>
+      <input type="text" id="councilQuestionInput" class="modal-input" placeholder="VD: Mình nên nói gì hoặc làm gì tiếp theo?" maxlength="150" />
       <button type="button" class="modal-start-btn" id="councilStartBtn">Triệu tập hội đồng →</button>
     </div>
   </div>

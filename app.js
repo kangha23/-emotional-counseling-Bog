@@ -126,6 +126,9 @@ const councilCloseBtn = document.getElementById("councilCloseBtn");
 const councilSituationInput = document.getElementById("councilSituationInput");
 const councilQuestionInput = document.getElementById("councilQuestionInput");
 const councilStartBtn = document.getElementById("councilStartBtn");
+const councilBannerEl = document.getElementById("councilBanner");
+const councilTopicEl = document.getElementById("councilTopic");
+const endCouncilBtn = document.getElementById("endCouncilBtn");
 
 let conversations = [];
 let activeId = null;
@@ -327,6 +330,8 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     closeSidebar();
     closePersonaMenu();
+    closeRehearsalModal();
+    closeCouncilModal();
   }
 });
 
@@ -426,14 +431,14 @@ function formatTime(ts) {
   });
 }
 
-function createMessageEl(role, ts) {
+function createMessageEl(role, ts, avatarText) {
   const wrapper = document.createElement("div");
   wrapper.className = `message ${role}`;
 
   if (role === "bot") {
     const avatar = document.createElement("div");
     avatar.className = "msg-avatar";
-    avatar.textContent = personaAvatar();
+    avatar.textContent = avatarText || personaAvatar();
     wrapper.appendChild(avatar);
   }
 
@@ -472,19 +477,19 @@ function addUserMessage(text, ts, mood) {
 }
 
 function addBotMessage(text, ts, opts = {}) {
-  const el = createMessageEl("bot", ts);
+  const el = createMessageEl("bot", ts, opts.avatar);
   el.bubble.innerHTML = renderRich(text);
   chatBox.appendChild(el.wrapper);
   if (!opts.quiet) scrollBottom();
   return el;
 }
 
-function showTyping() {
+function showTyping(avatar = personaAvatar()) {
   const wrapper = document.createElement("div");
   wrapper.className = "message bot";
   wrapper.id = "typing";
   wrapper.innerHTML =
-    `<div class="msg-avatar">${personaAvatar()}</div><div class="msg-body"><div class="bubble typing"><span></span><span></span><span></span></div></div>`;
+    `<div class="msg-avatar">${avatar}</div><div class="msg-body"><div class="bubble typing"><span></span><span></span><span></span></div></div>`;
   chatBox.appendChild(wrapper);
   scrollBottom();
   return wrapper;
@@ -502,10 +507,18 @@ function renderMessages(conv) {
   } else {
     suggestionsEl.classList.add("hidden");
     for (const m of conv.messages) {
+      if (m.hidden) continue;
       if (m.role === "user") {
         addUserMessage(m.text, m.ts, m.mood);
       } else {
-        const el = addBotMessage(m.text, m.ts, { quiet: true });
+        if (m.councilBrief) {
+          addCouncilBriefMessage(m.scenario || conv.scenario, m.ts);
+          continue;
+        }
+        const el = addBotMessage(m.text, m.ts, {
+          quiet: true,
+          avatar: m.council || m.councilNotice ? "👥" : undefined
+        });
         if (m.council) {
           el.bubble.classList.add("council");
           el.bubble.innerHTML = renderCouncilCards(m.text);
@@ -517,6 +530,7 @@ function renderMessages(conv) {
   }
   updateRegenVisibility();
   updateRehearsalBanner();
+  updateCouncilUI();
 }
 
 /* ---------- Action bar (copy / hỏi lại / đánh giá) ---------- */
@@ -652,16 +666,22 @@ async function streamChat({ message, history, mood, extra = {}, signal, onDelta 
 }
 
 function buildHistory(conv) {
-  return (conv?.messages || [])
+  const history = (conv?.messages || [])
     .filter((m) => !m.synthetic && m.text)
     .map((m) => ({ role: m.role === "bot" ? "model" : "user", parts: [{ text: m.text }] }));
+
+  // Hội thoại cũ chưa lưu lượt triệu tập nên lịch sử có thể bắt đầu bằng model.
+  if (conv?.mode === "council" && history[0]?.role === "model") {
+    history.unshift({ role: "user", parts: [{ text: COUNCIL_KICK }] });
+  }
+  return history;
 }
 
 async function requestBotReply(conv, message, hist, mood, extra = {}) {
   abortController = new AbortController();
-  const typing = showTyping();
-  updateRegenVisibility();
   const isCouncil = extra.mode === "council";
+  const typing = showTyping(isCouncil ? "👥" : personaAvatar());
+  updateRegenVisibility();
 
   let acc = "";
   let el = null;
@@ -677,7 +697,7 @@ async function requestBotReply(conv, message, hist, mood, extra = {}) {
         acc = text;
         if (!el) {
           removeTyping();
-          el = addBotMessage("", Date.now(), { quiet: true });
+          el = addBotMessage("", Date.now(), { quiet: true, avatar: isCouncil ? "👥" : undefined });
         }
         if (isCouncil) {
           el.bubble.classList.add("council");
@@ -705,7 +725,7 @@ async function requestBotReply(conv, message, hist, mood, extra = {}) {
       attachActions(el.wrapper, botMsg);
     } else {
       removeTyping();
-      const fresh = addBotMessage(reply, botMsg.ts);
+      const fresh = addBotMessage(reply, botMsg.ts, { avatar: isCouncil ? "👥" : undefined });
       if (isCouncil) {
         fresh.bubble.classList.add("council");
         fresh.bubble.innerHTML = renderCouncilCards(reply);
@@ -719,16 +739,29 @@ async function requestBotReply(conv, message, hist, mood, extra = {}) {
     if (e.name === "AbortError") {
       if (acc.trim()) {
         const botMsg = { role: "bot", text: acc.trim() + "\n\n_(đã dừng)_", ts: Date.now() };
+        if (isCouncil) botMsg.council = true;
         conv.messages.push(botMsg);
         persist();
-        const fresh = addBotMessage(botMsg.text, botMsg.ts);
+        const fresh = el || addBotMessage(botMsg.text, botMsg.ts, { avatar: isCouncil ? "👥" : undefined });
+        if (isCouncil) {
+          fresh.bubble.classList.add("council");
+          fresh.bubble.innerHTML = renderCouncilCards(botMsg.text);
+        } else {
+          fresh.bubble.innerHTML = renderRich(botMsg.text);
+        }
         attachActions(fresh.wrapper, botMsg);
       }
     } else if (acc.trim() && el) {
       const botMsg = { role: "bot", text: acc.trim(), ts: Date.now() };
+      if (isCouncil) botMsg.council = true;
       conv.messages.push(botMsg);
       persist();
-      el.bubble.innerHTML = renderRich(botMsg.text);
+      if (isCouncil) {
+        el.bubble.classList.add("council");
+        el.bubble.innerHTML = renderCouncilCards(botMsg.text);
+      } else {
+        el.bubble.innerHTML = renderRich(botMsg.text);
+      }
       attachActions(el.wrapper, botMsg);
       addBotMessage(`⚠️ Mất kết nối giữa chừng: ${e.message}`, Date.now());
     } else {
@@ -741,6 +774,7 @@ async function requestBotReply(conv, message, hist, mood, extra = {}) {
   } finally {
     abortController = null;
     updateRegenVisibility();
+    updateCouncilUI();
     scrollBottom();
   }
 }
@@ -779,7 +813,7 @@ async function sendMessage(text) {
   const extra =
     conv.mode === "rehearsal" && !conv.rehearsalEnded
       ? { mode: "rehearsal", scenario: conv.scenario }
-      : conv.mode === "council"
+      : conv.mode === "council" && !conv.councilEnded
         ? { mode: "council", scenario: conv.scenario }
         : {};
 
@@ -800,6 +834,7 @@ async function regenerate() {
   const lastBotIdx = [...conv.messages].reverse().findIndex((m) => m.role === "bot" && !m.synthetic);
   if (lastBotIdx === -1) return;
   const botIdx = conv.messages.length - 1 - lastBotIdx;
+  const removedBot = conv.messages[botIdx];
 
   const lastUser = [...conv.messages.slice(0, botIdx)].reverse().find((m) => m.role === "user");
   if (!lastUser) return;
@@ -813,7 +848,7 @@ async function regenerate() {
   const extra =
     conv.mode === "rehearsal" && !conv.rehearsalEnded
       ? { mode: "rehearsal", scenario: conv.scenario }
-      : conv.mode === "council"
+      : conv.mode === "council" && (!conv.councilEnded || removedBot.council)
         ? { mode: "council", scenario: conv.scenario }
         : {};
   try {
@@ -1258,26 +1293,57 @@ endRehearsalBtn.addEventListener("click", async () => {
 
 /* ---------- Hội đồng tư vấn ---------- */
 
+const COUNCIL_KICK =
+  "(Bắt đầu hội đồng. Hãy phân tích tình huống và trả lời đúng định dạng bốn phần.)";
+const COUNCIL_FOLLOWUPS = [
+  "Hội đồng đang giả định điều gì chưa chắc đúng?",
+  "So sánh giúp mình các lựa chọn và rủi ro.",
+  "Chốt cho mình kế hoạch hành động 3 bước."
+];
+
+function normalizeCouncilName(name) {
+  return name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/Đ/g, "D")
+    .replace(/đ/g, "d")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+}
+
 function parseCouncil(text) {
-  const re = /\[(BẠN THÂN|CHUYÊN GIA|CHỊ ĐẠI|KẾT LUẬN)[^\]]*\]/g;
+  const re = /\[\s*(BẠN\s*THÂN|BAN\s*THAN|CHUYÊN\s*GIA|CHUYEN\s*GIA|CHỊ\s*ĐẠI|CHI\s*DAI|KẾT\s*LUẬN|KET\s*LUAN)[^\]]*\]/giu;
   const sections = [];
   let match;
   let lastIndex = 0;
   let current = null;
   while ((match = re.exec(text))) {
-    if (current) current.body = text.slice(lastIndex, match.index).trim();
-    current = { name: match[1], body: "" };
+    if (current) {
+      current.body = text
+        .slice(lastIndex, match.index)
+        .replace(/^\s*(?:\*\*|__)\s*(?:\r?\n|$)/, "")
+        .replace(/(?:\r?\n)?\s*(?:\*\*|__)\s*$/, "")
+        .trim();
+    }
+    current = { name: normalizeCouncilName(match[1]), body: "" };
     sections.push(current);
     lastIndex = re.lastIndex;
   }
-  if (current) current.body = text.slice(lastIndex).trim();
+  if (current) {
+    current.body = text
+      .slice(lastIndex)
+      .replace(/^\s*(?:\*\*|__)\s*(?:\r?\n|$)/, "")
+      .trim();
+  }
   return sections;
 }
 
 function councilMeta(name) {
-  if (name.includes("BẠN THÂN")) return { emoji: "😎", label: "Bạn thân" };
-  if (name.includes("CHUYÊN GIA")) return { emoji: "🩺", label: "Chuyên gia" };
-  if (name.includes("CHỊ ĐẠI")) return { emoji: "💅", label: "Chị đại" };
+  const normalized = normalizeCouncilName(name);
+  if (normalized.includes("BAN THAN")) return { emoji: "😎", label: "Bạn thân", key: "friend" };
+  if (normalized.includes("CHUYEN GIA")) return { emoji: "🩺", label: "Chuyên gia", key: "expert" };
+  if (normalized.includes("CHI DAI")) return { emoji: "💅", label: "Chị đại", key: "sister" };
   return { emoji: "✨", label: "Kết luận hội đồng", final: true };
 }
 
@@ -1288,13 +1354,77 @@ function renderCouncilCards(text) {
     .map((s) => {
       const meta = councilMeta(s.name);
       return (
-        `<div class="council-card${meta.final ? " final" : ""}">` +
+        `<section class="council-card${meta.final ? " final" : ""}"${meta.key ? ` data-member="${meta.key}"` : ""}>` +
         `<div class="cc-head"><span class="cc-emoji">${meta.emoji}</span><span class="cc-name">${meta.label}</span></div>` +
         `<div class="cc-body">${renderRich(s.body)}</div>` +
-        `</div>`
+        `</section>`
       );
     })
     .join("");
+}
+
+function addCouncilBriefMessage(scenario, ts) {
+  const el = createMessageEl("bot", ts, "👥");
+  el.bubble.classList.add("council-brief");
+
+  const heading = document.createElement("div");
+  heading.className = "council-brief-title";
+  heading.textContent = "Hồ sơ hội đồng";
+
+  const situationLabel = document.createElement("span");
+  situationLabel.className = "council-brief-label";
+  situationLabel.textContent = "Tình huống";
+  const situationText = document.createElement("p");
+  situationText.textContent = scenario?.situation || "Chưa có thông tin";
+
+  const questionLabel = document.createElement("span");
+  questionLabel.className = "council-brief-label";
+  questionLabel.textContent = "Câu hỏi";
+  const questionText = document.createElement("p");
+  questionText.textContent = scenario?.question || "Mình nên làm gì tiếp theo?";
+
+  el.bubble.append(heading, situationLabel, situationText, questionLabel, questionText);
+  chatBox.appendChild(el.wrapper);
+  scrollBottom();
+  return el;
+}
+
+function showCouncilSuggestions() {
+  suggestionsEl.dataset.mode = "council";
+  suggestionsEl.innerHTML = "";
+  for (const text of COUNCIL_FOLLOWUPS) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "chip council-chip";
+    btn.textContent = text;
+    suggestionsEl.appendChild(btn);
+  }
+  suggestionsEl.classList.remove("hidden");
+}
+
+function hideCouncilSuggestions() {
+  if (suggestionsEl.dataset.mode !== "council") return;
+  restoreSuggestions();
+  suggestionsEl.classList.add("hidden");
+}
+
+function updateCouncilUI() {
+  const conv = getActive();
+  const active = Boolean(conv && conv.mode === "council" && !conv.councilEnded);
+  councilBannerEl.classList.toggle("hidden", !active);
+  messageInput.placeholder = active
+    ? "Hỏi tiếp để cả hội đồng phản biện..."
+    : "Tâm sự với JinXuan nhé...";
+
+  if (!active) {
+    hideCouncilSuggestions();
+    return;
+  }
+
+  councilTopicEl.textContent = conv.scenario?.question || "Mình nên làm gì tiếp theo?";
+  const lastVisible = [...conv.messages].reverse().find((m) => !m.hidden && !m.synthetic);
+  if (!abortController && lastVisible?.council) showCouncilSuggestions();
+  else hideCouncilSuggestions();
 }
 
 function openCouncilModal() {
@@ -1314,8 +1444,18 @@ councilCloseBtn.addEventListener("click", closeCouncilModal);
 councilModalEl.addEventListener("click", (e) => {
   if (e.target === councilModalEl) closeCouncilModal();
 });
+councilQuestionInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    councilStartBtn.click();
+  }
+});
+councilSituationInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) councilStartBtn.click();
+});
 
 councilStartBtn.addEventListener("click", async () => {
+  if (sendMessage.busy) return;
   const situation = councilSituationInput.value.trim();
   if (!situation) {
     councilSituationInput.classList.add("error");
@@ -1331,6 +1471,18 @@ councilStartBtn.addEventListener("click", async () => {
     situation,
     question: councilQuestionInput.value.trim()
   };
+  conv.councilEnded = false;
+  conv.messages = [
+    {
+      role: "bot",
+      synthetic: true,
+      councilBrief: true,
+      scenario: { ...conv.scenario },
+      text: "Hồ sơ hội đồng",
+      ts: Date.now()
+    },
+    { role: "user", hidden: true, text: COUNCIL_KICK, ts: Date.now() }
+  ];
   conv.title = "👥 " + (situation.length > 34 ? situation.slice(0, 34) + "…" : situation);
   persist();
   renderConvList();
@@ -1340,14 +1492,36 @@ councilStartBtn.addEventListener("click", async () => {
   councilSituationInput.value = "";
   councilQuestionInput.value = "";
 
-  const kick = "(Bắt đầu hội đồng. Hãy phân tích tình huống và cho lời khuyên theo đúng định dạng.)";
   sendMessage.busy = true;
+  councilStartBtn.disabled = true;
   try {
-    await requestBotReply(conv, kick, [], null, { mode: "council", scenario: conv.scenario });
+    await requestBotReply(conv, COUNCIL_KICK, [], null, { mode: "council", scenario: conv.scenario });
   } finally {
     sendMessage.busy = false;
+    councilStartBtn.disabled = false;
     updateRegenVisibility();
+    updateCouncilUI();
   }
+});
+
+endCouncilBtn.addEventListener("click", () => {
+  if (sendMessage.busy) return;
+  const conv = getActive();
+  if (!conv || conv.mode !== "council" || conv.councilEnded) return;
+
+  conv.councilEnded = true;
+  const notice = {
+    role: "bot",
+    synthetic: true,
+    councilNotice: true,
+    text: "Phiên hội đồng đã kết thúc. Bạn có thể tiếp tục tâm sự riêng với JinXuan.",
+    ts: Date.now()
+  };
+  conv.messages.push(notice);
+  persist();
+  addBotMessage(notice.text, notice.ts, { avatar: "👥" });
+  updateCouncilUI();
+  messageInput.focus();
 });
 
 /* ---------- Âm nhạc & thời tiết theo tâm trạng ---------- */
@@ -1553,4 +1727,3 @@ if (conversations.length) {
 
 renderMoodChart("week");
 maybeCheckIn();
-
